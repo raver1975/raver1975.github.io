@@ -531,7 +531,7 @@
 <script type="module">
     // --- Game State Variables ---
     let historyQueue = [];
-    const MAX_HISTORY_SIZE = 20; // Updated history size
+    const MAX_HISTORY_SIZE = 2000; // Updated history size
     let currentUiJson = null;
     let currentNotes = {};
     let currentSubjectId = "";
@@ -878,9 +878,9 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
                 // index 0 corresponds to Turn 1's data (UI shown, actions taken).
                 const turnLabel = index + 1;
                 // Format each turn as requested
-                return `Turn <span class="math-inline">\{turnLabel\}\:\\n</span>{item.ui}\n${item.actions}`;
+                return `Turn \{turnLabel\}\:\\n{item.ui}\n${item.actions}`;
             }).join('\n'); // Join the formatted turns with a newline
-            return `${baseMainPrompt}${activeAddendum}\n\n--- Last Player Actions ---\n${playerActionsJson}\n\n--- Prior Game History (Last ${historyQueue.length} turns) ---\n${historyString}\n\n--- Generate JSON UI for Turn ${turnNumber} ---`;
+            return `${baseMainPrompt}${activeAddendum}\n\n--- Last Player Actions ---\n${playerActionsJson}\n\n--- Prior Game History (Last ${historyQueue.length} turns) ---\n${historyString}\n`;
 
         }
     }
