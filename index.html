@@ -531,11 +531,11 @@
 <script type="module">
     // --- Game State Variables ---
     let historyQueue = [];
-    const MAX_HISTORY_SIZE = 2000; // Updated history size
+    const MAX_HISTORY_SIZE = 20; // Updated history size
     let currentUiJson = null;
     let currentNotes = {};
     let currentSubjectId = "";
-    let isMasturbationMode = false; // Default mode
+    let isMasturbationMode = true; // Default mode
     let isLoading = false;
     let apiKeyLocked = false;
 
@@ -850,38 +850,33 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
     /**
      * Constructs the full prompt for the Gemini API call based on the turn number.
      * @param {string} playerActionsJson - JSON string of player actions from the turn just completed.
-     * @param {number} turnNumber - The current turn number (1-based).
      * @param {Array<object>} historyQueue - Array containing history data (UI and actions).
      * @param {boolean} isMasturbationMode - Flag indicating if Masturbation Mode is active.
      * @returns {string} The fully constructed prompt text.
      */
-    function constructPrompt(playerActionsJson, turnNumber, historyQueue, isMasturbationMode) {
+    function constructPrompt(playerActionsJson, historyQueue, isMasturbationMode) {
         // --- Common Elements ---
         const baseMainPrompt = geemsPrompts.main;
         // Add the Masturbation Mode addendum if the mode is active
         const activeAddendum = isMasturbationMode ? `\n\n---\n${geemsPrompts.masturbationModeAddendum}\n---\n` : "";
 
         // --- Turn-Specific Logic ---
-        if (turnNumber === 1) {
+        if (historyQueue.length == 0) {
             // For the VERY FIRST turn:
             // Include firstRun instructions, main prompt (with potential addendum), and the example turn.
             // No history or player actions are sent.
-            console.log("Constructing prompt for Turn 1.");
-            return `${geemsPrompts.firstRun}\n\n---\n${baseMainPrompt}${activeAddendum}\n---\n${geemsPrompts.exampleTurn}\n---\n\n--- Generate JSON UI for Turn 1 ---`;
+            const s = `${geemsPrompts.firstRun}\n\n---\n${baseMainPrompt}${activeAddendum}\n---\n${geemsPrompts.exampleTurn}\n---\n\n--- Generate JSON UI for Turn 1 ---`;
+            console.log(s);
+            return s;
+
         } else {
             // For SUBSEQUENT turns (Turn 2+):
             // Include main prompt (with potential addendum), the last player actions, and the recent history.
             // Do NOT include firstRun or exampleTurn.
-            console.log(`Constructing prompt for Turn ${turnNumber}.`);
-            const historyString = historyQueue.map((item, index) => {
-                // The historyQueue contains data for turns 1 up to the turn *before* the current one.
-                // index 0 corresponds to Turn 1's data (UI shown, actions taken).
-                const turnLabel = index + 1;
-                // Format each turn as requested
-                return `Turn \{turnLabel\}\:\\n{item.ui}\n${item.actions}`;
-            }).join('\n'); // Join the formatted turns with a newline
-            return `${baseMainPrompt}${activeAddendum}\n\n--- Last Player Actions ---\n${playerActionsJson}\n\n--- Prior Game History (Last ${historyQueue.length} turns) ---\n${historyString}\n`;
-
+            const historyString = historyQueue.map(item => `UI:\n${item.ui}\nActions:\n${item.actions}`).join('\n---\n');
+            const s = `${baseMainPrompt}${activeAddendum}\n\n--- Last Player Actions ---\n${playerActionsJson}\n\n--- Prior Game History (Last ${historyQueue.length} turns) ---\n${historyString}\n\n--- Generate JSON UI for Next Game Turn ---`;
+            console.log(s);
+            return s;
         }
     }
 
@@ -1088,19 +1083,15 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
             console.log(`Attempt ${attempts}/${maxAttempts}: Trying model ${currentModel} (Index: ${currentModelIndex})`);
 
             try {
-                // Calculate turn number (1-based index)
-                const turnNumber = historyQueue.length + 1;
-                console.log(`Current Turn Number: ${turnNumber}`);
-
                 // Construct the prompt based on the turn number
-                const fullPrompt = constructPrompt(playerActionsJson, turnNumber, historyQueue, isMasturbationMode);
+                const fullPrompt = constructPrompt(playerActionsJson, historyQueue, isMasturbationMode);
 
-                console.log(`Sending Prompt to ${currentModel} for Turn ${turnNumber}...`);
+                console.log(`Sending Prompt to ${currentModel}`);
                 // console.log("Prompt Snippet:", fullPrompt.substring(0, 500) + "..."); // Log snippet for debugging
 
                 const jsonStringResponse = await callRealGeminiAPI(apiKey, fullPrompt, currentModel); // Pass current model
                 const responseJson = JSON.parse(jsonStringResponse);
-                console.log(`Successfully parsed API response from ${currentModel} for Turn ${turnNumber}.`);
+                console.log(`Successfully parsed API response from ${currentModel}.`);
 
                 // --- Process successful response ---
                 processSuccessfulResponse(responseJson, playerActionsJson); // This now includes auto-save and sound
