@@ -535,15 +535,15 @@
     let currentUiJson = null;
     let currentNotes = {};
     let currentSubjectId = "";
-    let isMasturbationMode = true; // Default mode
+    let isMasturbationMode = false; // Default mode
     let isLoading = false;
     let apiKeyLocked = false;
 
     // --- Model Switching State ---
     const AVAILABLE_MODELS = ["gemini-2.5-pro-exp-03-25",
         "gemini-2.0-pro-exp-02-05",
-        "gemini-2.0-flash-exp",
         "gemini-1.5-pro",
+        "gemini-2.0-flash-exp",
         "gemini-exp-1206"];
     let currentModelIndex = 0;
 
@@ -1005,13 +1005,12 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
     }
 
 
-    /** Processes the successful response from the API. */
-    function processSuccessfulResponse(responseJson, playerActionsJson) {
-        // Add the *previous* turn's data to the history queue *before* updating currentUiJson
+    /** Updates the history queue with the previous turn's data. */
+    function updateHistoryQueue(playerActionsJson) {
         if (currentUiJson) {
             const previousTurnData = {
                 ui: JSON.stringify(currentUiJson), // UI that was just displayed
-                actions: playerActionsJson || "{}"  // Actions that led to the *new* UI
+                actions: playerActionsJson || "{}" // Actions that led to the *new* UI
             };
             if (historyQueue.length >= MAX_HISTORY_SIZE) {
                 historyQueue.shift(); // Remove oldest entry if queue is full
@@ -1019,6 +1018,13 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
             historyQueue.push(previousTurnData);
             console.log(`Pushed previous turn to history. New Queue size: ${historyQueue.length}/${MAX_HISTORY_SIZE}`);
         }
+    }
+
+    /** Processes the successful response from the API. */
+    function processSuccessfulResponse(responseJson, playerActionsJson) {
+        // Add the *previous* turn's data to the history queue *before* updating currentUiJson
+        updateHistoryQueue(playerActionsJson);
+
 
         // Update the current UI state with the newly received data
         currentUiJson = responseJson;
@@ -1069,6 +1075,10 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
         setLoading(true);
         hideError(); // Clear previous errors
         const initialMsgEl = document.getElementById('initial-message');
+
+        // Update the history queue with the player actions before sending the prompt
+        updateHistoryQueue(playerActionsJson);
+
         if (initialMsgEl) initialMsgEl.style.display = 'none'; // Hide initial message
 
         let success = false;
@@ -1083,7 +1093,7 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
             console.log(`Attempt ${attempts}/${maxAttempts}: Trying model ${currentModel} (Index: ${currentModelIndex})`);
 
             try {
-                // Construct the prompt based on the turn number
+                // Construct the prompt based on the turn number and history
                 const fullPrompt = constructPrompt(playerActionsJson, historyQueue, isMasturbationMode);
 
                 console.log(`Sending Prompt to ${currentModel}`);
@@ -2046,8 +2056,10 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
         console.log("Submit button clicked.");
         // Attempt to initialize/resume audio context on user interaction
         initAudioContext();
+        const playerActions = collectInputState();
         if (isLoading) return; // Prevent multiple submissions while loading
-        fetchTurnData(collectInputState()); // Fetch next turn data using current input state
+        fetchTurnData(playerActions); // Fetch next turn data using current input state
+
     });
 
     /** Handles input changes in the API Key field. */
