@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GEEMS - HTML/JS (Auto-Save + Sound)</title>
+    <title>GEEMS - HTML/JS (Turn Logic Fix v2)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -531,7 +531,7 @@
 <script type="module">
     // --- Game State Variables ---
     let historyQueue = [];
-    const MAX_HISTORY_SIZE = 10;
+    const MAX_HISTORY_SIZE = 20; // Updated history size
     let currentUiJson = null;
     let currentNotes = {};
     let currentSubjectId = "";
@@ -847,19 +847,37 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
         }
     }
 
-    /** Constructs the full prompt for the Gemini API call. */
+    /**
+     * Constructs the full prompt for the Gemini API call based on the turn number.
+     * @param {string} playerActionsJson - JSON string of player actions from the turn just completed.
+     * @param {number} turnNumber - The current turn number (1-based).
+     * @param {Array<object>} historyQueue - Array containing history data (UI and actions).
+     * @param {boolean} isMasturbationMode - Flag indicating if Masturbation Mode is active.
+     * @returns {string} The fully constructed prompt text.
+     */
     function constructPrompt(playerActionsJson, turnNumber, historyQueue, isMasturbationMode) {
-        const historyString = historyQueue.map(item => `UI:\n${item.ui}\nActions:\n${item.actions}`).join('\n---\n');
+        // --- Common Elements ---
         const baseMainPrompt = geemsPrompts.main;
+        // Add the Masturbation Mode addendum if the mode is active
         const activeAddendum = isMasturbationMode ? `\n\n---\n${geemsPrompts.masturbationModeAddendum}\n---\n` : "";
-        const exampleTurnPrompt = geemsPrompts.exampleTurn;
 
+        // --- Turn-Specific Logic ---
         if (turnNumber === 1) {
-            return `${geemsPrompts.firstRun}\n\n---\n${baseMainPrompt}${activeAddendum}\n---\n${exampleTurnPrompt}\n---\n\n--- Generate JSON UI for Turn 1 ---`;
+            // For the VERY FIRST turn:
+            // Include firstRun instructions, main prompt (with potential addendum), and the example turn.
+            // No history or player actions are sent.
+            console.log("Constructing prompt for Turn 1.");
+            return `${geemsPrompts.firstRun}\n\n---\n${baseMainPrompt}${activeAddendum}\n---\n${geemsPrompts.exampleTurn}\n---\n\n--- Generate JSON UI for Turn 1 ---`;
         } else {
-            return `${baseMainPrompt}${activeAddendum}\n---\n${exampleTurnPrompt}\n---\n\n--- Last Player Actions ---\n${playerActionsJson}\n\n--- Prior Game History ---\n${historyString}\n\n--- Generate JSON UI for Turn ${turnNumber} ---`;
+            // For SUBSEQUENT turns (Turn 2+):
+            // Include main prompt (with potential addendum), the last player actions, and the recent history.
+            // Do NOT include firstRun or exampleTurn.
+            console.log(`Constructing prompt for Turn ${turnNumber}.`);
+            const historyString = historyQueue.map(item => `UI:\n${item.ui}\nActions:\n${item.actions}`).join('\n---\n');
+            return `${baseMainPrompt}${activeAddendum}\n\n--- Last Player Actions ---\n${playerActionsJson}\n\n--- Prior Game History (Last ${historyQueue.length} turns) ---\n${historyString}\n\n--- Generate JSON UI for Turn ${turnNumber} ---`;
         }
     }
+
 
     /**
      * Saves the current essential game state to local storage.
@@ -997,7 +1015,7 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
                 historyQueue.shift(); // Remove oldest entry if queue is full
             }
             historyQueue.push(previousTurnData);
-            console.log("Pushed previous turn to history. New Queue size:", historyQueue.length);
+            console.log(`Pushed previous turn to history. New Queue size: ${historyQueue.length}/${MAX_HISTORY_SIZE}`);
         }
 
         // Update the current UI state with the newly received data
@@ -1063,13 +1081,19 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
             console.log(`Attempt ${attempts}/${maxAttempts}: Trying model ${currentModel} (Index: ${currentModelIndex})`);
 
             try {
+                // Calculate turn number (1-based index)
                 const turnNumber = historyQueue.length + 1;
+                console.log(`Current Turn Number: ${turnNumber}`);
+
+                // Construct the prompt based on the turn number
                 const fullPrompt = constructPrompt(playerActionsJson, turnNumber, historyQueue, isMasturbationMode);
 
-                console.log(`Sending Prompt to ${currentModel}...`);
+                console.log(`Sending Prompt to ${currentModel} for Turn ${turnNumber}...`);
+                // console.log("Prompt Snippet:", fullPrompt.substring(0, 500) + "..."); // Log snippet for debugging
+
                 const jsonStringResponse = await callRealGeminiAPI(apiKey, fullPrompt, currentModel); // Pass current model
                 const responseJson = JSON.parse(jsonStringResponse);
-                console.log(`Successfully parsed API response from ${currentModel}.`);
+                console.log(`Successfully parsed API response from ${currentModel} for Turn ${turnNumber}.`);
 
                 // --- Process successful response ---
                 processSuccessfulResponse(responseJson, playerActionsJson); // This now includes auto-save and sound
@@ -1216,17 +1240,20 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
             let generatedText = candidate.content.parts[0].text;
             // console.log("Raw API Generated Text:", generatedText);
 
+            // Attempt to extract JSON from markdown code blocks first
             const jsonMatch = generatedText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
             if (jsonMatch && jsonMatch[1]) {
                 generatedText = jsonMatch[1];
+                console.log("Extracted JSON from markdown block.");
             }
             let trimmedText = generatedText.trim();
 
             try {
+                // Attempt to parse the potentially extracted or raw text
                 JSON.parse(trimmedText);
-                return trimmedText;
+                return trimmedText; // Return the valid JSON string
             } catch (e) {
-                console.error("API response is not valid JSON:", trimmedText, e);
+                console.error("API response is not valid JSON after potential extraction:", trimmedText, e);
                 throw new Error(`Received invalid JSON structure from API. Snippet: ${trimmedText.substring(0, 200)}...`);
             }
         } else {
@@ -1255,7 +1282,9 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
             showError("Received invalid UI data format from API (expected an array).");
             // Attempt to restore initial message if UI fails to render
             if (initialMsgElementRef) {
-                uiContainer.appendChild(initialMsgElementRef.cloneNode(true));
+                const clonedInitialMsg = initialMsgElementRef.cloneNode(true);
+                clonedInitialMsg.style.display = 'block'; // Make sure it's visible
+                uiContainer.appendChild(clonedInitialMsg);
             }
             return;
         }
@@ -1279,6 +1308,7 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
             console.log("Rendering combined analysis toggle container.");
             renderAnalysisToggle(pendingPlayerAnalysis, pendingGeminiAnalysis);
         } else {
+            // Render individually if only one exists
             if (pendingPlayerAnalysis) renderSingleElement(pendingPlayerAnalysis, -1);
             if (pendingGeminiAnalysis) renderSingleElement(pendingGeminiAnalysis, -1);
         }
@@ -1305,11 +1335,12 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
         if (element.color && isValidHexColor(element.color)) {
             adjustedColor = adjustColorForContrast(element.color);
             wrapper.style.borderLeftColor = adjustedColor;
+            // Apply border color to toggle container as well
             if (wrapper.classList.contains('analysis-toggle-container')) {
                 wrapper.style.borderColor = adjustedColor;
             }
         } else {
-            wrapper.style.borderLeftColor = 'transparent';
+            wrapper.style.borderLeftColor = 'transparent'; // Default or fallback
         }
 
         try {
@@ -1318,7 +1349,12 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
                     renderImage(wrapper, element, adjustedColor);
                     break;
                 case 'text':
-                    renderText(wrapper, element, adjustedColor);
+                    // Ensure analysis text isn't rendered twice if part of a toggle
+                    if (element !== pendingPlayerAnalysis && element !== pendingGeminiAnalysis) {
+                        renderText(wrapper, element, adjustedColor);
+                    } else {
+                        return; // Skip rendering here, handled by renderAnalysisToggle or fallback
+                    }
                     break;
                 case 'textfield':
                     renderTextField(wrapper, element, adjustedColor);
@@ -1335,7 +1371,8 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
                 case 'hidden':
                     if (element.name === 'notes') {
                         try {
-                            const notesValue = element.value || '""';
+                            // Store notes internally if needed, but don't render
+                            currentNotes = element.value || null; // Example: store if needed elsewhere
                             // console.log("Received 'notes' hidden field.");
                         } catch (e) {
                             console.error("Error processing 'notes' hidden field:", e, element.value);
@@ -1344,12 +1381,14 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
                         currentSubjectId = element.value || "";
                         // console.log("Updated Subject ID:", currentSubjectId);
                     }
-                    return; // Don't append hidden elements visually
+                    // Don't append hidden elements visually
+                    return;
                 default:
                     console.warn("Rendering unknown element type:", element.type, element);
                     wrapper.textContent = `Unknown element type: ${element.type}`;
                     wrapper.style.color = 'red';
             }
+            // Append the wrapper only if it wasn't skipped (e.g., analysis parts)
             uiContainer.appendChild(wrapper);
         } catch (renderError) {
             console.error(`Error rendering element ${index} (type: ${element.type}, name: ${element.name}):`, renderError, element);
@@ -1371,9 +1410,9 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
      * @param {string|null} adjustedColor - The contrast-adjusted color.
      */
     function renderImage(wrapper, element, adjustedColor) {
-        wrapper.classList.add('geems-image-container');
+        wrapper.classList.add('geems-image-container'); // Use specific class for image container
         const img = document.createElement('img');
-        img.className = 'geems-image';
+        img.className = 'geems-image'; // Use specific class for image styling
         const imagePrompt = element.value || 'abstract image';
         // Generate random seed for each game turn image
         const randomSeed = Math.floor(Math.random() * 65536);
@@ -1381,28 +1420,38 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
         const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imagePrompt)}?nologo=true&safe=false&seed=${randomSeed}`;
         img.src = imageUrl;
         img.alt = element.label || `Image: ${imagePrompt.substring(0, 50)}...`;
+        // Add error handling for the image
         img.onerror = () => {
             console.warn(`Failed to load image: ${imageUrl}. Prompt: ${imagePrompt}`);
-            img.src = `https://placehold.co/600x400/e0e7ff/4f46e5?text=Image+Load+Error`;
+            img.src = `https://placehold.co/600x400/e0e7ff/4f46e5?text=Image+Load+Error`; // Placeholder on error
             img.alt = `Error loading image: ${imagePrompt.substring(0, 50)}...`;
         };
         wrapper.appendChild(img);
 
+        // Render label below image if provided
         if (element.label) {
             const labelDiv = document.createElement('div');
-            labelDiv.className = 'geems-label text-center font-semibold mt-2';
+            labelDiv.className = 'geems-label text-center font-semibold mt-2'; // Center label below image
             if (adjustedColor) labelDiv.style.color = adjustedColor;
             labelDiv.textContent = element.label;
             wrapper.appendChild(labelDiv);
         }
+        // Render the prompt text below the label/image
         const promptText = document.createElement('p');
-        promptText.className = 'geems-image-prompt';
+        promptText.className = 'geems-image-prompt'; // Specific class for prompt text styling
         promptText.textContent = `Prompt: ${imagePrompt}`;
         wrapper.appendChild(promptText);
     }
 
+    /**
+     * Renders a text element, handling labels and basic Markdown.
+     * @param {HTMLElement} wrapper - The container div for the element.
+     * @param {object} element - The UI element definition.
+     * @param {string|null} adjustedColor - The contrast-adjusted color.
+     */
     function renderText(wrapper, element, adjustedColor) {
         const textContent = element.text || element.value || '';
+        // Determine if a label should be shown (exclude specific named text elements)
         const useLabel = element.label && !['narrative', 'divine_wisdom', 'player_facing_analysis', 'gemini_facing_analysis'].some(namePart => element.name?.includes(namePart));
 
         if (useLabel) {
@@ -1414,157 +1463,203 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
         }
         const textElement = document.createElement('div');
         textElement.className = 'geems-text';
+        // Basic Markdown parsing (bold, italics, code blocks, newlines)
         textElement.innerHTML = textContent
-            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-            .replace(/\*(.*?)\*/g, '<em>$1</em>')
-            .replace(/```([\s\S]*?)```/g, (match, p1) => `<pre>${p1.trim().replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>`)
-            .replace(/\n/g, '<br>');
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Bold
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')       // Italics
+            .replace(/```([\s\S]*?)```/g, (match, p1) => `<pre>${p1.trim().replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>`) // Code blocks
+            .replace(/\n/g, '<br>'); // Newlines
         wrapper.appendChild(textElement);
     }
 
+    /**
+     * Renders a text field (textarea) element.
+     * @param {HTMLElement} wrapper - The container div for the element.
+     * @param {object} element - The UI element definition.
+     * @param {string|null} adjustedColor - The contrast-adjusted color.
+     */
     function renderTextField(wrapper, element, adjustedColor) {
         const label = document.createElement('label');
         label.className = 'geems-label';
-        label.textContent = element.label || element.name;
-        label.htmlFor = element.name;
+        label.textContent = element.label || element.name; // Use name as fallback label
+        label.htmlFor = element.name; // Associate label with input
         if (adjustedColor) label.style.color = adjustedColor;
         wrapper.appendChild(label);
 
         const input = document.createElement('textarea');
-        input.className = 'geems-textarea';
+        input.className = 'geems-textarea'; // Use specific class for textarea styling
         input.id = element.name;
         input.name = element.name;
-        input.rows = 4;
-        input.value = element.value || '';
+        input.rows = 4; // Default rows
+        input.value = element.value || ''; // Pre-fill value if provided
         input.placeholder = element.placeholder || 'Type your response here...';
-        input.dataset.elementType = 'textfield';
+        input.dataset.elementType = 'textfield'; // Mark element type for collection
         wrapper.appendChild(input);
     }
 
+    /**
+     * Renders a checkbox element.
+     * @param {HTMLElement} wrapper - The container div for the element.
+     * @param {object} element - The UI element definition.
+     * @param {string|null} adjustedColor - The contrast-adjusted color.
+     */
     function renderCheckbox(wrapper, element, adjustedColor) {
         const optionDiv = document.createElement('div');
-        optionDiv.className = 'geems-checkbox-option';
+        optionDiv.className = 'geems-checkbox-option'; // Use specific class for checkbox option styling
 
         const input = document.createElement('input');
         input.type = 'checkbox';
         input.id = element.name;
         input.name = element.name;
+        // Check based on boolean true or string 'true'
         input.checked = element.value === true || String(element.value).toLowerCase() === 'true';
-        input.dataset.elementType = 'checkbox';
-        if (adjustedColor) input.style.accentColor = adjustedColor;
+        input.dataset.elementType = 'checkbox'; // Mark element type
+        if (adjustedColor) input.style.accentColor = adjustedColor; // Style checkbox color
 
         const label = document.createElement('label');
         label.htmlFor = element.name;
-        label.textContent = element.label || element.name;
+        label.textContent = element.label || element.name; // Use name as fallback label
         if (adjustedColor) label.style.color = adjustedColor;
-        label.className = "ml-2 flex-grow cursor-pointer";
+        label.className = "ml-2 flex-grow cursor-pointer"; // Styling for label
 
         optionDiv.appendChild(input);
         optionDiv.appendChild(label);
-        wrapper.appendChild(optionDiv);
+        wrapper.appendChild(optionDiv); // Append the whole option div to the main wrapper
     }
 
+    /**
+     * Renders a slider (range input) element.
+     * @param {HTMLElement} wrapper - The container div for the element.
+     * @param {object} element - The UI element definition.
+     * @param {string|null} adjustedColor - The contrast-adjusted color.
+     */
     function renderSlider(wrapper, element, adjustedColor) {
         const label = document.createElement('label');
         label.className = 'geems-label';
-        label.textContent = element.label || element.name;
+        label.textContent = element.label || element.name; // Use name as fallback label
         label.htmlFor = element.name;
         if (adjustedColor) label.style.color = adjustedColor;
         wrapper.appendChild(label);
 
         const sliderContainer = document.createElement('div');
-        sliderContainer.className = 'flex items-center space-x-4 mt-2';
+        sliderContainer.className = 'flex items-center space-x-4 mt-2'; // Layout for slider and value
 
         const input = document.createElement('input');
         input.type = 'range';
-        input.className = 'geems-slider flex-grow';
+        input.className = 'geems-slider flex-grow'; // Use specific class for slider styling
         input.id = element.name;
         input.name = element.name;
-        const min = parseFloat(element.min) || 0;
-        const max = parseFloat(element.max) || 10;
+        const min = parseFloat(element.min) || 0; // Default min 0
+        const max = parseFloat(element.max) || 10; // Default max 10
         input.min = min;
         input.max = max;
-        input.step = element.step || 1;
+        input.step = element.step || 1; // Default step 1
+        // Pre-fill value, ensuring it's within min/max bounds, default to midpoint if invalid
         const defaultValue = parseFloat(element.value);
         input.value = isNaN(defaultValue) ? (min + max) / 2 : Math.max(min, Math.min(max, defaultValue));
-        input.dataset.elementType = 'slider';
+        input.dataset.elementType = 'slider'; // Mark element type
+        // Apply adjusted color to slider thumb/track
         if (adjustedColor) {
             input.style.accentColor = adjustedColor;
+            // Custom property for thumb color (might need browser-specific prefixes in real CSS)
             input.style.setProperty('--slider-thumb-color', adjustedColor);
+            // Ensure style attribute exists before appending
             input.setAttribute('style', `${input.getAttribute('style') || ''} --slider-thumb-color: ${adjustedColor};`);
         }
 
         const valueDisplay = document.createElement('span');
-        valueDisplay.className = `geems-slider-value-display font-medium w-12 text-right`;
-        valueDisplay.textContent = input.value;
+        valueDisplay.className = `geems-slider-value-display font-medium w-12 text-right`; // Styling for value display
+        valueDisplay.textContent = input.value; // Show initial value
         if (adjustedColor) valueDisplay.style.color = adjustedColor;
 
+        // Update value display on slider input
         input.oninput = () => {
             valueDisplay.textContent = input.value;
         };
 
         sliderContainer.appendChild(input);
         sliderContainer.appendChild(valueDisplay);
-        wrapper.appendChild(sliderContainer);
+        wrapper.appendChild(sliderContainer); // Append the container to the main wrapper
     }
 
+    /**
+     * Renders a radio button group element.
+     * Handles options provided as JSON string array or single string.
+     * @param {HTMLElement} wrapper - The container div for the element.
+     * @param {object} element - The UI element definition.
+     * @param {string|null} adjustedColor - The contrast-adjusted color.
+     */
     function renderRadio(wrapper, element, adjustedColor) {
         const label = document.createElement('label');
         label.className = 'geems-label';
-        label.textContent = element.label || element.name;
+        label.textContent = element.label || element.name; // Use name as fallback label
         if (adjustedColor) label.style.color = adjustedColor;
         wrapper.appendChild(label);
 
         let options = [];
         let defaultValue = null;
+        // Options can be in element.options or element.value
         let optionsSource = element.options || element.value;
 
         try {
+            // If optionsSource is a string, try parsing it as JSON array
             if (typeof optionsSource === 'string') {
                 try {
                     optionsSource = JSON.parse(optionsSource);
                 } catch (e) {
+                    // If parsing fails, treat the string as a single option
                     optionsSource = [{label: optionsSource, value: optionsSource}];
+                    console.warn(`Radio options for '${element.name}' was a string, treating as single option:`, optionsSource);
                 }
             }
 
+            // Process if optionsSource is now an array
             if (Array.isArray(optionsSource)) {
                 options = optionsSource.map(opt => {
                     let currentLabel = '', currentValue = '', isDefault = false;
+                    // Handle object format {label: "...", value: "..."}
                     if (typeof opt === 'object' && opt !== null && opt.value !== undefined) {
                         currentValue = String(opt.value);
-                        currentLabel = opt.label !== undefined ? String(opt.label) : currentValue;
+                        currentLabel = opt.label !== undefined ? String(opt.label) : currentValue; // Use value if label missing
+                        // Check for '*' prefix indicating default
                         if (currentLabel.startsWith('*')) {
                             defaultValue = currentValue;
-                            currentLabel = currentLabel.substring(1);
+                            currentLabel = currentLabel.substring(1); // Remove '*' from label
                             isDefault = true;
                         }
-                    } else {
+                    }
+                    // Handle simple string format "Option" or "*Default Option"
+                    else {
                         currentValue = String(opt);
                         currentLabel = currentValue;
+                        // Check for '*' prefix indicating default
                         if (currentLabel.startsWith('*')) {
-                            defaultValue = currentValue.substring(1);
+                            defaultValue = currentValue.substring(1); // Remove '*' from value and label
                             currentValue = defaultValue;
                             currentLabel = defaultValue;
                             isDefault = true;
                         }
                     }
                     return {value: currentValue, label: currentLabel, isDefault: isDefault};
-                }).filter(opt => opt !== null);
+                }).filter(opt => opt !== null); // Filter out any potential nulls
 
+                // If no default was marked with '*', check if element.value matches an option value
                 if (defaultValue === null && element.value && typeof element.value === 'string') {
+                    // Avoid trying to parse element.value if it was already the source of options
                     let isValueSimpleString = true;
                     try {
                         if (Array.isArray(JSON.parse(element.value))) isValueSimpleString = false;
-                    } catch (e) { /* ignore */
+                    } catch (e) { /* ignore parse error */
                     }
+
                     if (isValueSimpleString) {
                         const directValueMatch = options.find(opt => opt.value === element.value);
                         if (directValueMatch) {
-                            defaultValue = directValueMatch.value;
+                            defaultValue = directValueMatch.value; // Set default based on element.value match
                         }
                     }
                 }
+
             } else {
                 console.warn("Unexpected format for radio options:", element.name, optionsSource);
             }
@@ -1572,90 +1667,121 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
             console.error("Failed to process radio options:", element.name, e);
         }
 
-        if (options.length === 0) {
-            wrapper.innerHTML += `<p class="text-sm text-red-600">Error: No valid options for radio group '${element.name}'.</p>`;
-            return;
-        }
+        // If still no default, and options exist, pick the first one
         if (defaultValue === null && options.length > 0) {
             defaultValue = options[0].value;
         }
 
-        options.forEach((option, index) => {
-            const optionDiv = document.createElement('div');
-            optionDiv.className = 'geems-radio-option';
-            const input = document.createElement('input');
-            input.type = 'radio';
-            const inputId = `${element.name}_${index}`;
-            input.id = inputId;
-            input.name = element.name;
-            input.value = option.value;
-            input.checked = (option.value === defaultValue);
-            input.dataset.elementType = 'radio';
-            if (adjustedColor) input.style.accentColor = adjustedColor;
+        // Render each radio button option
+        if (options.length > 0) {
+            options.forEach((option, index) => {
+                const optionDiv = document.createElement('div');
+                optionDiv.className = 'geems-radio-option'; // Use specific class for radio option styling
 
-            const optionLabel = document.createElement('label');
-            optionLabel.htmlFor = inputId;
-            optionLabel.textContent = option.label;
-            if (adjustedColor) optionLabel.style.color = adjustedColor;
-            optionLabel.className = "ml-2 flex-grow cursor-pointer";
+                const input = document.createElement('input');
+                input.type = 'radio';
+                const inputId = `${element.name}_${index}`; // Unique ID for each radio input
+                input.id = inputId;
+                input.name = element.name; // All radios in group share the same name
+                input.value = option.value;
+                input.checked = (option.value === defaultValue); // Check if this is the default
+                input.dataset.elementType = 'radio'; // Mark element type
+                if (adjustedColor) input.style.accentColor = adjustedColor; // Style radio button color
 
-            optionDiv.appendChild(input);
-            optionDiv.appendChild(optionLabel);
-            wrapper.appendChild(optionDiv);
-        });
+                const optionLabel = document.createElement('label');
+                optionLabel.htmlFor = inputId; // Associate label with input
+                optionLabel.textContent = option.label;
+                if (adjustedColor) optionLabel.style.color = adjustedColor;
+                optionLabel.className = "ml-2 flex-grow cursor-pointer"; // Styling for label
+
+                optionDiv.appendChild(input);
+                optionDiv.appendChild(optionLabel);
+                wrapper.appendChild(optionDiv); // Append the option div to the main wrapper
+            });
+        } else {
+            // Show error if no valid options were found
+            wrapper.innerHTML += `<p class="text-sm text-red-600">Error: No valid options found for radio group '${element.name}'.</p>`;
+        }
     }
 
+    /**
+     * Renders a toggle container for player and Gemini analysis text.
+     * @param {object} playerAnalysisElem - The player-facing analysis element definition.
+     * @param {object} geminiAnalysisElem - The Gemini-facing analysis element definition.
+     */
     function renderAnalysisToggle(playerAnalysisElem, geminiAnalysisElem) {
         const wrapper = document.createElement('div');
-        wrapper.className = 'geems-element analysis-toggle-container';
+        wrapper.className = 'geems-element analysis-toggle-container'; // Specific class for toggle styling
+        // Inherit voice class if present on Gemini analysis
         if (geminiAnalysisElem.voice) wrapper.classList.add(`voice-${geminiAnalysisElem.voice}`);
 
-        const rawColor = (geminiAnalysisElem.color && isValidHexColor(geminiAnalysisElem.color)) ? geminiAnalysisElem.color : '#10b981';
+        // Determine border color based on Gemini analysis color or default
+        const rawColor = (geminiAnalysisElem.color && isValidHexColor(geminiAnalysisElem.color)) ? geminiAnalysisElem.color : '#10b981'; // Default green
         const borderColor = adjustColorForContrast(rawColor);
-        wrapper.style.borderColor = borderColor;
+        wrapper.style.borderColor = borderColor; // Apply color to all borders of the toggle
 
+        // Create div for player analysis (initially visible)
         const playerDiv = document.createElement('div');
         playerDiv.className = 'analysis-content player-analysis';
-        playerDiv.style.display = 'block';
-        renderAnalysisContent(playerDiv, playerAnalysisElem, borderColor);
+        playerDiv.style.display = 'block'; // Player analysis shown by default
+        renderAnalysisContent(playerDiv, playerAnalysisElem, borderColor); // Render content inside
 
+        // Create div for Gemini analysis (initially hidden)
         const geminiDiv = document.createElement('div');
         geminiDiv.className = 'analysis-content gemini-analysis';
-        geminiDiv.style.display = 'none';
-        renderAnalysisContent(geminiDiv, geminiAnalysisElem, borderColor);
+        geminiDiv.style.display = 'none'; // Gemini analysis hidden by default
+        renderAnalysisContent(geminiDiv, geminiAnalysisElem, borderColor); // Render content inside
 
+        // Create toggle icon (using Lucide font class)
         const icon = document.createElement('i');
-        icon.className = 'lucide lucide-repeat analysis-toggle-icon';
+        icon.className = 'lucide lucide-repeat analysis-toggle-icon'; // Icon class
+        // Set custom property for hover color if border color is valid
         if (borderColor) wrapper.style.setProperty('--toggle-hover-color', borderColor);
 
+        // Append elements to wrapper
         wrapper.appendChild(playerDiv);
         wrapper.appendChild(geminiDiv);
         wrapper.appendChild(icon);
 
+        // Add click listener to toggle visibility
         wrapper.addEventListener('click', (event) => {
-            if (event.target.closest('pre')) return; // Don't toggle if clicking inside code block
+            // Prevent toggling if click is inside a <pre> block (e.g., selecting text)
+            if (event.target.closest('pre')) return;
+
             const isPlayerVisible = playerDiv.style.display !== 'none';
-            playerDiv.style.display = isPlayerVisible ? 'none' : 'block';
-            geminiDiv.style.display = isPlayerVisible ? 'block' : 'none';
+            playerDiv.style.display = isPlayerVisible ? 'none' : 'block'; // Toggle player div
+            geminiDiv.style.display = isPlayerVisible ? 'block' : 'none'; // Toggle gemini div
+
+            // Also toggle visibility of the associated tweet element
             const tweetWrapper = document.getElementById('tweet-element-wrapper');
-            if (tweetWrapper) tweetWrapper.style.display = geminiDiv.style.display;
+            if (tweetWrapper) tweetWrapper.style.display = geminiDiv.style.display; // Match tweet visibility to Gemini analysis
+
+            // Rotate icon based on which analysis is visible
             icon.style.transform = geminiDiv.style.display !== 'none' ? 'translateY(-50%) rotate(180deg)' : 'translateY(-50%) rotate(0deg)';
         });
-        uiContainer.appendChild(wrapper);
+        uiContainer.appendChild(wrapper); // Add the toggle container to the UI
     }
 
+    /**
+     * Renders the content (label and text) inside an analysis div.
+     * @param {HTMLElement} containerDiv - The div to render content into (player or gemini).
+     * @param {object} analysisElement - The analysis element definition.
+     * @param {string} borderColor - The adjusted border color for styling.
+     */
     function renderAnalysisContent(containerDiv, analysisElement, borderColor) {
         const textContent = analysisElement.text || analysisElement.value || '';
+        // Render label if provided
         if (analysisElement.label) {
             const analysisLabel = document.createElement('div');
-            analysisLabel.className = 'geems-label font-semibold mb-2';
+            analysisLabel.className = 'geems-label font-semibold mb-2'; // Analysis label styling
             if (borderColor) {
-                analysisLabel.style.color = borderColor;
-                analysisLabel.style.borderBottomColor = borderColor;
+                analysisLabel.style.color = borderColor; // Use border color for label
+                analysisLabel.style.borderBottomColor = borderColor; // Use border color for underline
             }
             analysisLabel.textContent = analysisElement.label;
             containerDiv.appendChild(analysisLabel);
         }
+        // Render text content with basic Markdown
         const textElement = document.createElement('div');
         textElement.className = 'geems-text';
         textElement.innerHTML = textContent
@@ -1665,34 +1791,48 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
         containerDiv.appendChild(textElement);
     }
 
+    /**
+     * Renders the hidden tweet element, initially hidden.
+     * @param {object} tweetData - The hidden tweet element definition.
+     */
     function renderTweetElement(tweetData) {
         const wrapper = document.createElement('div');
-        wrapper.id = 'tweet-element-wrapper';
-        wrapper.className = 'geems-element';
+        wrapper.id = 'tweet-element-wrapper'; // ID for targeting
+        wrapper.className = 'geems-element'; // Basic element styling
         wrapper.style.display = 'none'; // Initially hidden
 
+        // Add a label for the tweet stream
         const label = document.createElement('div');
         label.className = 'geems-label';
         label.textContent = 'Gemini\'s Internal Tweet Stream:';
         wrapper.appendChild(label);
 
+        // Add the tweet content
         const tweetContent = document.createElement('div');
         tweetContent.className = 'geems-text';
         tweetContent.textContent = tweetData.value || 'No tweet content.';
         wrapper.appendChild(tweetContent);
 
-        // Insert after the analysis toggle container if it exists
+        // Try to insert the tweet element right after the analysis toggle container
         const analysisToggle = uiContainer.querySelector('.analysis-toggle-container');
         if (analysisToggle && analysisToggle.nextSibling) {
+            // Insert before the element that is currently after the toggle
             uiContainer.insertBefore(wrapper, analysisToggle.nextSibling);
         } else if (analysisToggle) {
+            // If toggle is the last element, append after it
             uiContainer.appendChild(wrapper);
         } else {
-            // Fallback: Append after the last visible non-control element
-            const lastVisibleElement = Array.from(uiContainer.children).reverse().find(el => el.style.display !== 'none' && !el.classList.contains('loading-indicator') && !el.classList.contains('error-message'));
+            // Fallback: Append after the last visible non-control element if toggle doesn't exist
+            const lastVisibleElement = Array.from(uiContainer.children).reverse().find(el =>
+                el.style.display !== 'none' &&
+                !el.classList.contains('loading-indicator') &&
+                !el.classList.contains('error-message') &&
+                el.id !== 'submit-turn' // Exclude submit button itself
+            );
             if (lastVisibleElement && lastVisibleElement.nextSibling) {
                 uiContainer.insertBefore(wrapper, lastVisibleElement.nextSibling);
             } else {
+                // If no suitable element found, just append to the end
                 uiContainer.appendChild(wrapper);
             }
         }
@@ -1701,51 +1841,60 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
 
     // --- Utility Functions ---
 
+    /** Collects the current state of all interactive UI elements. */
     function collectInputState() {
         const inputs = {};
+        // Select all elements marked with 'data-element-type'
         uiContainer.querySelectorAll('[data-element-type]').forEach(el => {
             const name = el.name;
-            if (!name) return;
+            if (!name) return; // Skip elements without a name
             const type = el.dataset.elementType;
             switch (type) {
                 case 'textfield':
                     inputs[name] = el.value;
                     break;
                 case 'checkbox':
-                    inputs[name] = el.checked;
+                    inputs[name] = el.checked; // Store boolean value
                     break;
                 case 'slider':
-                    inputs[name] = parseFloat(el.value);
+                    inputs[name] = parseFloat(el.value); // Store numeric value
                     break;
                 case 'radio':
-                    if (el.checked) {
+                    if (el.checked) { // Only store the value of the selected radio button
                         inputs[name] = el.value;
                     }
                     break;
             }
         });
+        // Add the current turn number (based on history length before this turn)
         inputs['turn'] = historyQueue.length + 1;
         // console.log("Collected Inputs:", inputs);
-        return JSON.stringify(inputs);
+        return JSON.stringify(inputs); // Return as JSON string
     }
 
+    /** Sets the loading state for the UI. */
     function setLoading(loading) {
         isLoading = loading;
-        loadingIndicator.style.display = loading ? 'flex' : 'none';
-        const keyPresent = apiKeyInput.value.trim().length > 0;
-        // Disable all footer buttons during loading
-        submitButton.disabled = loading || !(apiKeyLocked || keyPresent);
-        saveGameButton.disabled = loading || !apiKeyLocked;
-        modeToggleButton.disabled = loading;
-        resetGameButton.disabled = loading || !apiKeyLocked; // Disable reset button too
+        loadingIndicator.style.display = loading ? 'flex' : 'none'; // Show/hide loading spinner
 
-        // Disable UI elements
+        // Determine if API key is present (needed for enabling submit button)
+        const keyPresent = apiKeyInput.value.trim().length > 0;
+
+        // Enable/disable main action buttons based on loading state and game state
+        submitButton.disabled = loading || !(apiKeyLocked || keyPresent); // Submit enabled if not loading AND (game started OR key present)
+        saveGameButton.disabled = loading || !apiKeyLocked; // Save enabled if not loading AND game started
+        modeToggleButton.disabled = loading; // Mode toggle disabled during loading
+        resetGameButton.disabled = loading || !apiKeyLocked; // Reset enabled if not loading AND game started
+
+        // Disable/enable all interactive UI elements within the game container
         uiContainer.querySelectorAll('input, textarea, button, .analysis-toggle-container').forEach(el => {
-            // Exclude main action buttons from this generic disabling logic
+            // Exclude the main footer buttons from this generic disabling logic
             if (el.id !== 'submit-turn' && el.id !== 'saveGameButton' && el.id !== 'modeToggleButton' && el.id !== 'resetGameButton') {
+                // Disable form elements directly
                 if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'BUTTON') {
                     el.disabled = loading;
                 }
+                // Dim and disable pointer events for custom styled elements
                 if (el.classList.contains('geems-radio-option') || el.classList.contains('geems-checkbox-option') || el.classList.contains('geems-slider') || el.classList.contains('analysis-toggle-container')) {
                     el.style.opacity = loading ? 0.5 : 1.0;
                     el.style.pointerEvents = loading ? 'none' : 'auto';
@@ -1754,34 +1903,42 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
         });
     }
 
+    /** Displays an error message. */
     function showError(message) {
         errorDisplay.textContent = message;
-        errorDisplay.style.display = 'block';
-    }
-    function hideError() {
-        errorDisplay.textContent = '';
-        errorDisplay.style.display = 'none';
+        errorDisplay.style.display = 'block'; // Make error visible
     }
 
+    /** Hides the error message. */
+    function hideError() {
+        errorDisplay.textContent = '';
+        errorDisplay.style.display = 'none'; // Make error hidden
+    }
+
+    /** Checks if a string is a valid hex color code. */
     function isValidHexColor(hex) {
         return typeof hex === 'string' && /^#[0-9A-F]{6}$/i.test(hex);
     }
 
+    /** Adjusts a hex color to ensure minimum lightness contrast against a light background. */
     function adjustColorForContrast(hex) {
-        if (!isValidHexColor(hex)) return hex;
+        if (!isValidHexColor(hex)) return hex; // Return original if invalid
+
+        // Convert hex to HSL
         let r = parseInt(hex.substring(1, 3), 16), g = parseInt(hex.substring(3, 5), 16),
             b = parseInt(hex.substring(5, 7), 16);
         r /= 255;
         g /= 255;
         b /= 255;
         const max = Math.max(r, g, b), min = Math.min(r, g, b);
-        let h, s, l = (max + min) / 2;
+        let h, s, l = (max + min) / 2; // Calculate lightness
+
         if (max === min) {
-            h = s = 0;
+            h = s = 0; // achromatic
         } else {
             const d = max - min;
-            s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-            switch (max) {
+            s = l > 0.5 ? d / (2 - max - min) : d / (max + min); // Calculate saturation
+            switch (max) { // Calculate hue
                 case r:
                     h = (g - b) / d + (g < b ? 6 : 0);
                     break;
@@ -1794,11 +1951,15 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
             }
             h /= 6;
         }
+
+        // If lightness is too high (adjust MIN_CONTRAST_LIGHTNESS as needed)
         if (l > MIN_CONTRAST_LIGHTNESS) {
-            l = MIN_CONTRAST_LIGHTNESS * 0.9; // Adjust lightness down
+            l = MIN_CONTRAST_LIGHTNESS * 0.9; // Reduce lightness
+
+            // Convert HSL back to RGB
             let r1, g1, b1;
             if (s === 0) {
-                r1 = g1 = b1 = l;
+                r1 = g1 = b1 = l; // achromatic
             } else {
                 const hue2rgb = (p, q, t) => {
                     if (t < 0) t += 1;
@@ -1814,35 +1975,40 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
                 g1 = hue2rgb(p, q, h);
                 b1 = hue2rgb(p, q, h - 1 / 3);
             }
+
+            // Convert RGB back to Hex
             const toHex = x => {
                 const hexVal = Math.round(x * 255).toString(16);
-                return hexVal.length === 1 ? '0' + hexVal : hexVal;
+                return hexVal.length === 1 ? '0' + hexVal : hexVal; // Pad with zero if needed
             };
             return `#${toHex(r1)}${toHex(g1)}${toHex(b1)}`;
         }
-        return hex; // Return original if contrast is okay
+        return hex; // Return original hex if contrast is already sufficient
     }
 
+    /** Displays a temporary message related to clipboard actions. */
     function showClipboardMessage(message, isError = false) {
         clipboardMessage.textContent = message;
         clipboardMessage.style.color = isError ? '#dc2626' : '#16a34a'; // Red for error, Green for success
+        // Clear message after 3 seconds
         setTimeout(() => {
             clipboardMessage.textContent = '';
-        }, 3000); // Clear after 3 seconds
+        }, 3000);
     }
 
+    /** Updates the visual appearance and text of the mode toggle button. */
     function updateModeButtonVisuals() {
         if (isMasturbationMode) {
             modeToggleButton.textContent = 'Mode: Explicit';
-            modeToggleButton.classList.remove('standard-mode');
+            modeToggleButton.classList.remove('standard-mode'); // Remove green class
         } else {
             modeToggleButton.textContent = 'Mode: Standard';
-            modeToggleButton.classList.add('standard-mode');
+            modeToggleButton.classList.add('standard-mode'); // Add green class
         }
     }
 
     /**
-     * Sets the header, footer, and footer icon images with random seeds.
+     * Sets the header, footer, and footer icon images using Pollinations AI with random seeds.
      * Includes nologo=true and safe=false parameters.
      */
     function setDynamicImages() {
@@ -1851,24 +2017,24 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
         const footerSeed = Math.floor(Math.random() * 65536);
         const iconSeed = Math.floor(Math.random() * 65536);
 
-        // Define prompts
+        // Define image prompts
         const headerPrompt = "wide cinematic vivid colorful abstract emotional landscape brainwaves";
         const footerPrompt = "wide abstract colorful digital roots network connections";
         const iconPrompt = "pixel art floppy disk";
 
-        // Update Header Banner
+        // Update Header Banner image source and alt text
         if (headerBanner) {
             headerBanner.src = `https://image.pollinations.ai/prompt/${encodeURIComponent(headerPrompt)}?width=1200&height=200&seed=${headerSeed}&nologo=true&safe=false`;
             headerBanner.alt = headerPrompt;
         }
 
-        // Update Footer Banner
+        // Update Footer Banner image source and alt text
         if (footerBanner) {
             footerBanner.src = `https://image.pollinations.ai/prompt/${encodeURIComponent(footerPrompt)}?width=1200&height=100&seed=${footerSeed}&nologo=true&safe=false`;
             footerBanner.alt = footerPrompt;
         }
 
-        // Update Footer Icon
+        // Update Footer Icon image source and alt text
         if (footerIconImage) {
             footerIconImage.src = `https://image.pollinations.ai/prompt/${encodeURIComponent(iconPrompt)}?width=60&height=60&seed=${iconSeed}&nologo=true&safe=false`;
             footerIconImage.alt = iconPrompt;
@@ -1877,28 +2043,33 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
 
     // --- Event Listeners ---
 
+    /** Handles the click event for the Submit Turn button. */
     submitButton.addEventListener('click', () => {
         console.log("Submit button clicked.");
-        // Attempt to initialize/resume audio context on the first *intended* action
+        // Attempt to initialize/resume audio context on user interaction
         initAudioContext();
-        if (isLoading) return;
-        fetchTurnData(collectInputState());
+        if (isLoading) return; // Prevent multiple submissions while loading
+        fetchTurnData(collectInputState()); // Fetch next turn data using current input state
     });
 
+    /** Handles input changes in the API Key field. */
     apiKeyInput.addEventListener('input', () => {
         const keyPresent = apiKeyInput.value.trim().length > 0;
+        // Enable/disable submit button based on key presence (if game not started)
         submitButton.disabled = isLoading || !(apiKeyLocked || keyPresent);
-        // Reset button should also be enabled/disabled based on key presence/lock status
+        // Enable/disable reset button similarly
         resetGameButton.disabled = isLoading || !(apiKeyLocked || keyPresent);
 
+        // Update initial message if API key section is visible
         if (apiKeySection.style.display !== 'none') {
             const currentInitialMessage = document.getElementById('initial-message');
             if (keyPresent) {
-                hideError();
+                hideError(); // Hide any previous errors
                 if (currentInitialMessage && currentInitialMessage.style.display !== 'none') {
                     currentInitialMessage.textContent = 'API Key entered. Click "Submit Turn" to begin your journey!';
                 }
             } else {
+                // Restore default initial message if key is removed
                 if (currentInitialMessage) {
                     currentInitialMessage.innerHTML = 'Enter your API Key above (or provide in URL) and click "Submit Turn" to start.<br>Or, paste previously saved game code into your browser console to load a game.';
                     currentInitialMessage.style.display = 'block';
@@ -1907,29 +2078,32 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
         }
     });
 
+    /** Handles the click event for the Save Game button. */
     saveGameButton.addEventListener('click', () => {
         console.log("Save Game button clicked (Manual Save).");
+        // Ensure game has started and state exists
         if (!apiKeyLocked || !currentUiJson || !historyQueue) {
             showClipboardMessage("Cannot save: Game not started or state missing.", true);
             return;
         }
-
+        // Ensure API key is present
         const rawApiKey = apiKeyInput.value.trim();
         if (!rawApiKey) {
             showClipboardMessage("Cannot save: API Key is missing.", true);
             return;
         }
 
+        // Get current game URL
         const gameUrl = window.location.origin + window.location.pathname;
 
-        // State for manual save includes URL for potential navigation
+        // Prepare state object for manual save (includes URL)
         const stateToSaveForManual = {
             encodedApiKey: encodeApiKey(rawApiKey),
             currentUiJson: currentUiJson,
             historyQueue: historyQueue,
             isMasturbationMode: isMasturbationMode,
             currentModelIndex: currentModelIndex,
-            gameUrl: gameUrl // Include URL for manual save/restore
+            gameUrl: gameUrl // Include URL for potential navigation during restore
         };
 
         let stateJsonString;
@@ -1941,66 +2115,76 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
             return;
         }
 
-        // The restoration code includes logic to store and potentially reload/navigate
+        // Create the self-executing restoration code to be copied
         const restorationLoaderCode = `
 (function() {
     console.log("GEEMS Restoration Loader: Storing state and checking URL...");
     try {
-        const stateToStore = ${stateJsonString};
-        const storageKey = '${LOCAL_STORAGE_KEY}';
+        const stateToStore = ${stateJsonString}; // Embed the saved state JSON
+        const storageKey = '${LOCAL_STORAGE_KEY}'; // Use the game's storage key
         const currentGameUrl = window.location.origin + window.location.pathname;
 
+        // Store the state in localStorage
         localStorage.setItem(storageKey, JSON.stringify(stateToStore));
         console.log("Saved state stored in localStorage under key:", storageKey);
 
+        // Check if the current URL matches the saved URL
         if (currentGameUrl !== stateToStore.gameUrl) {
+            // If URLs don't match, navigate to the correct URL
             console.log("Current URL (" + currentGameUrl + ") does not match saved URL (" + stateToStore.gameUrl + "). Navigating...");
-            alert("GEEMS state saved to browser storage. Navigating to the correct game page to restore..."); // Use alert, not console.alert
-            window.location.href = stateToStore.gameUrl;
+            alert("GEEMS state saved to browser storage. Navigating to the correct game page to restore..."); // Use alert for user feedback
+            window.location.href = stateToStore.gameUrl; // Redirect
         } else {
+            // If URLs match, simply reload the page to trigger the restore logic
             console.log("Already on the correct game URL. Reloading page to apply stored state...");
-            alert("GEEMS state saved to browser storage. Reloading page to restore..."); // Use alert
-            window.location.reload();
+            alert("GEEMS state saved to browser storage. Reloading page to restore..."); // Use alert for user feedback
+            window.location.reload(); // Reload
         }
 
     } catch (error) {
         console.error("Error in GEEMS Restoration Loader:", error);
-        alert("Error preparing game state restoration: " + error.message + "\\nCheck the console for more details."); // Use alert
-        localStorage.removeItem('${LOCAL_STORAGE_KEY}');
+        alert("Error preparing game state restoration: " + error.message + "\\nCheck the console for more details."); // Use alert for error feedback
+        localStorage.removeItem('${LOCAL_STORAGE_KEY}'); // Clear potentially bad state on error
     }
 })();
         `;
 
+        // Attempt to copy the restoration code to the clipboard
         navigator.clipboard.writeText(restorationLoaderCode).then(() => {
             console.log("Restoration loader code copied to clipboard.");
-            showClipboardMessage("Save code copied! Paste into console to restore.");
+            showClipboardMessage("Save code copied! Paste into console to restore."); // Success message
         }).catch(err => {
+            // Handle clipboard write failure (e.g., permissions, browser support)
             console.error('Failed to copy restoration loader code: ', err);
-            showClipboardMessage("Failed to copy code. See console.", true);
+            showClipboardMessage("Failed to copy code. See console.", true); // Error message
+            // Log the code to the console as a fallback
             console.log("--- GEEMS Save State Loader Code (Copy Manually) ---");
             console.log(restorationLoaderCode);
             console.log("--- End GEEMS Save State Loader Code ---");
-            showClipboardMessage("Copy failed. Loader code logged to console.", true);
+            showClipboardMessage("Copy failed. Loader code logged to console.", true); // Update message
         });
     });
 
+    /** Handles the click event for the Mode Toggle button. */
     modeToggleButton.addEventListener('click', () => {
-        if (isLoading) return;
-        isMasturbationMode = !isMasturbationMode;
+        if (isLoading) return; // Prevent toggling while loading
+        isMasturbationMode = !isMasturbationMode; // Flip the mode flag
         console.log(`Masturbation Mode Toggled: ${isMasturbationMode}`);
-        updateModeButtonVisuals();
+        updateModeButtonVisuals(); // Update button appearance
         // Auto-save state when mode changes, as it's a significant state change
         autoSaveGameState();
     });
 
-    // --- Added Reset Button Listener ---
+    /** Handles the click event for the Reset Game button. */
     resetGameButton.addEventListener('click', () => {
-        if (isLoading || !apiKeyLocked) return; // Don't reset if loading or game not started
+        // Prevent reset if loading or game hasn't started
+        if (isLoading || !apiKeyLocked) return;
 
+        // Confirm with the user before resetting
         if (confirm('Are you sure you want to reset the game? All progress will be lost.')) {
             console.log("Resetting game state...");
 
-            // Clear state variables
+            // Clear core game state variables
             historyQueue = [];
             currentUiJson = null;
             currentNotes = {};
@@ -2008,67 +2192,71 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
             isMasturbationMode = true; // Reset to default mode
             currentModelIndex = 0; // Reset to first model
 
-            // Clear localStorage associated with this game
+            // Clear game state from localStorage
             localStorage.removeItem(LOCAL_STORAGE_KEY);
             console.log("Cleared game state from localStorage.");
 
-            // Clear UI and errors
-            uiContainer.innerHTML = '';
-            hideError();
+            // Reset UI and errors
+            uiContainer.innerHTML = ''; // Clear game elements
+            hideError(); // Hide any existing errors
 
-            // Re-add initial message temporarily (will be hidden by fetchTurnData)
+            // Re-add initial message temporarily (will be hidden/updated by fetchTurnData)
             let currentInitialMessage = document.getElementById('initial-message');
             if (!currentInitialMessage) {
+                // If it was removed entirely, recreate it
                 currentInitialMessage = document.createElement('div');
                 currentInitialMessage.id = 'initial-message';
                 currentInitialMessage.className = 'text-center text-gray-500 p-6 bg-white rounded-lg shadow';
                 uiContainer.appendChild(currentInitialMessage);
             }
-            currentInitialMessage.style.display = 'block';
-            currentInitialMessage.innerHTML = 'Resetting game... Loading first turn.';
+            currentInitialMessage.style.display = 'block'; // Ensure it's visible
+            currentInitialMessage.innerHTML = 'Resetting game... Loading first turn.'; // Indicate reset
 
 
-            // Update button states (Submit should be enabled as key is still valid)
-            submitButton.disabled = false;
+            // Update button states
+            submitButton.disabled = false; // Submit should be enabled as API key is still considered valid
             saveGameButton.disabled = true; // Disable save until first turn is generated
-            resetGameButton.disabled = false; // Keep reset enabled
-            updateModeButtonVisuals(); // Update mode button text
+            resetGameButton.disabled = false; // Keep reset enabled (since key is still valid)
+            updateModeButtonVisuals(); // Update mode button text to default
 
-            // Fetch the first turn (will set loading state)
-            fetchTurnData("{}"); // This will trigger the first auto-save after T1 loads
+            // Fetch the very first turn again (will set loading state)
+            // Send empty JSON "{}" as player actions for the first turn fetch
+            fetchTurnData("{}");
+            // Auto-save will happen automatically after T1 loads successfully
         }
     });
 
 
     // --- Initial Game Setup ---
 
-    /** Initializes the game state. Checks localStorage, then URL param. */
+    /** Initializes the game state. Checks localStorage, then URL param, then sets up for manual start. */
     function initializeGame() {
         console.log("Initializing GEEMS interface...");
-        let autoStarted = false;
+        let autoStarted = false; // Flag to track if game loaded automatically
 
-        // --- Priority 1: Load from localStorage (Auto-saved or Manually saved state) ---
+        // --- Priority 1: Load from localStorage (Auto-saved or Manually restored state) ---
         const storedStateString = localStorage.getItem(LOCAL_STORAGE_KEY);
         if (storedStateString) {
             console.log("Found saved state in localStorage. Attempting restore...");
             let savedState;
             try {
                 savedState = JSON.parse(storedStateString);
-                // Keep the state in localStorage unless there's an error during load
-                // localStorage.removeItem(LOCAL_STORAGE_KEY); // Removed this line
+                // NOTE: State is NOT removed from localStorage here. It persists until reset or error.
 
+                // Decode API key
                 const decodedApiKey = decodeApiKey(savedState.encodedApiKey);
                 if (!decodedApiKey) {
                     throw new Error("Failed to decode API key from saved state.");
                 }
 
+                // Restore game state variables
                 apiKeyInput.value = decodedApiKey;
                 historyQueue = savedState.historyQueue || [];
                 currentUiJson = savedState.currentUiJson || null;
-                isMasturbationMode = savedState.isMasturbationMode === true; // Default to true if undefined
+                isMasturbationMode = savedState.isMasturbationMode === true; // Default to true if undefined/false
                 currentModelIndex = savedState.currentModelIndex || 0;
                 apiKeyLocked = true; // Assume key is locked if state is restored
-                autoStarted = true;
+                autoStarted = true; // Mark as auto-started
 
                 console.log("State restored from localStorage:", {
                     historyLength: historyQueue.length,
@@ -2076,53 +2264,62 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
                     modelIndex: currentModelIndex
                 });
 
-                setDynamicImages(); // Set header/footer images after restore
+                setDynamicImages(); // Set header/footer images
+
+                // Render the restored UI if it exists
                 if (currentUiJson) {
-                    renderUI(currentUiJson); // Render the restored UI
+                    renderUI(currentUiJson);
                 } else {
-                    // If UI is missing, clear storage and force manual start
+                    // If UI data is missing, treat as error, clear storage, force manual start
                     console.warn("Restored state missing UI data. Clearing storage and forcing manual start.");
-                    localStorage.removeItem(LOCAL_STORAGE_KEY);
-                    throw new Error("Restored state was incomplete (missing UI).");
+                    localStorage.removeItem(LOCAL_STORAGE_KEY); // Clear bad state
+                    throw new Error("Restored state was incomplete (missing UI)."); // Trigger catch block
                 }
+
+                // Update UI elements post-restore
                 updateModeButtonVisuals();
                 apiKeySection.style.display = 'none'; // Hide API key section
                 const currentInitialMessage = document.getElementById('initial-message');
-                if (currentInitialMessage) currentInitialMessage.style.display = 'none';
-                hideError();
-                setLoading(false); // Ensure loading is off
-                submitButton.disabled = false; // Enable submit
-                saveGameButton.disabled = false; // Enable manual save
-                resetGameButton.disabled = false; // Enable reset
+                if (currentInitialMessage) currentInitialMessage.style.display = 'none'; // Hide initial message
+                hideError(); // Clear any previous errors
+                setLoading(false); // Ensure loading indicator is off
+                // Enable appropriate buttons
+                submitButton.disabled = false;
+                saveGameButton.disabled = false;
+                resetGameButton.disabled = false;
                 modeToggleButton.disabled = false;
 
-                // Don't show clipboard message on auto-restore, only for manual restore via code
+                // Optional: Briefly show restore success message (uncomment if desired)
                 // showClipboardMessage("Game state restored successfully!", false);
 
             } catch (error) {
+                // Handle errors during restore
                 console.error("Error restoring state from localStorage:", error);
                 showError(`Error restoring saved state: ${error.message}. Please start manually.`);
                 localStorage.removeItem(LOCAL_STORAGE_KEY); // Clear corrupted/incomplete state
-                // Reset state variables to ensure clean manual start
+
+                // Reset state variables to ensure a clean manual start
                 historyQueue = [];
                 currentUiJson = null;
                 isMasturbationMode = true;
                 currentModelIndex = 0;
                 apiKeyLocked = false;
-                autoStarted = false;
+                autoStarted = false; // Ensure manual start proceeds
                 apiKeyInput.value = ''; // Clear API key field
-                // Ensure UI is ready for manual start
+
+                // Reset UI for manual start
                 uiContainer.innerHTML = ''; // Clear potentially broken UI
                 const initialMsg = document.getElementById('initial-message');
                 if (initialMsg) {
-                    initialMsg.style.display = 'block';
-                    initialMsg.innerHTML = 'Enter your API Key above (or provide in URL) and click "Submit Turn" to start.<br>Or, paste previously saved game code into your browser console to load a game.';
+                    initialMsg.style.display = 'block'; // Show initial message
+                    initialMsg.innerHTML = 'Error restoring state. Enter your API Key above (or provide in URL) and click "Submit Turn" to start.<br>Or, paste previously saved game code into your browser console to load a game.';
                 }
-                if (apiKeySection) apiKeySection.style.display = 'block';
+                if (apiKeySection) apiKeySection.style.display = 'block'; // Show API key section
+                // Disable buttons appropriately for manual start
                 submitButton.disabled = true;
                 saveGameButton.disabled = true;
                 resetGameButton.disabled = true;
-                setDynamicImages(); // Set default images for manual start
+                setDynamicImages(); // Set default images
             }
         }
 
@@ -2134,66 +2331,70 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
 
                 if (keyFromUrlParam) {
                     console.log("API Key found in URL parameter. Attempting auto-start...");
-                    apiKeyInput.value = keyFromUrlParam;
-                    apiKeyLocked = false; // Not locked until first successful fetch
+                    apiKeyInput.value = keyFromUrlParam; // Set API key from URL
+                    apiKeyLocked = false; // Key is present but not locked until first fetch succeeds
+                    // Reset other state variables for a fresh start
                     currentModelIndex = 0;
                     isMasturbationMode = true; // Default mode
-                    historyQueue = []; // Start fresh history
-                    currentUiJson = null; // No UI yet
+                    historyQueue = [];
+                    currentUiJson = null;
 
-                    apiKeySection.style.display = 'none'; // Hide section
+                    // Update UI for auto-start
+                    apiKeySection.style.display = 'none'; // Hide API key section
                     const currentInitialMessage = document.getElementById('initial-message');
-                    if (currentInitialMessage) currentInitialMessage.style.display = 'none';
+                    if (currentInitialMessage) currentInitialMessage.style.display = 'none'; // Hide initial message
                     submitButton.disabled = false; // Enable submit immediately
                     updateModeButtonVisuals();
                     modeToggleButton.disabled = false;
-                    saveGameButton.disabled = true; // Disabled until game starts
-                    resetGameButton.disabled = true; // Disabled until game starts
+                    saveGameButton.disabled = true; // Disabled until game starts properly
+                    resetGameButton.disabled = true; // Disabled until game starts properly
 
-                    // Clear the apiKey from the URL for cleanliness/security
+                    // Clean the API key from the URL bar for security/cleanliness
                     const currentUrl = new URL(window.location.href);
                     currentUrl.searchParams.delete('apiKey');
-                    window.history.replaceState(null, '', currentUrl.toString());
+                    window.history.replaceState(null, '', currentUrl.toString()); // Update URL without reloading
 
-                    setDynamicImages(); // Set header/footer images on URL key load
-                    fetchTurnData("{}"); // Fetch the first turn (will lock key and enable buttons on success)
-                    autoStarted = true; // Mark as started
+                    setDynamicImages(); // Set header/footer images
+                    // Fetch the first turn using the provided key
+                    fetchTurnData("{}"); // Send empty actions for first turn
+                    autoStarted = true; // Mark as auto-started
                 }
             } catch (e) {
                 console.error("Error processing URL parameters:", e);
                 showError("Error reading URL parameters. Please start manually.");
-                autoStarted = false; // Ensure manual start proceeds
+                autoStarted = false; // Ensure manual start proceeds if URL processing fails
             }
         }
 
         // --- Manual Start Setup (if not auto-started from storage or URL) ---
         if (!autoStarted) {
             console.log("Manual start required. Enter API Key or paste save code into console.");
-            // Reset state variables just in case
+            // Ensure state variables are reset for a clean manual start
             historyQueue = [];
             currentUiJson = null;
             isMasturbationMode = true;
             currentModelIndex = 0;
             apiKeyLocked = false;
-            uiContainer.innerHTML = ''; // Clear UI
+            uiContainer.innerHTML = ''; // Clear UI container
 
-            // Ensure initial message is displayed
+            // Ensure initial message is displayed correctly
             let currentInitialMessage = document.getElementById('initial-message');
             if (!currentInitialMessage) {
+                // Recreate if missing
                 console.log("Recreating initial-message element for manual start.");
                 currentInitialMessage = document.createElement('div');
                 currentInitialMessage.id = 'initial-message';
                 currentInitialMessage.className = 'text-center text-gray-500 p-6 bg-white rounded-lg shadow';
                 uiContainer.appendChild(currentInitialMessage);
             }
-            currentInitialMessage.style.display = 'block';
+            currentInitialMessage.style.display = 'block'; // Make sure it's visible
             currentInitialMessage.innerHTML = 'Enter your API Key above (or provide in URL) and click "Submit Turn" to start.<br>Or, paste previously saved game code into your browser console to load a game.';
 
             // Ensure API key section is visible and input is clear
             if (apiKeySection) apiKeySection.style.display = 'block';
             apiKeyInput.value = '';
 
-            // Set initial button states
+            // Set initial button states for manual start
             setLoading(false); // Ensure loading indicator is off
             hideError(); // Clear any previous errors
             submitButton.disabled = true; // Disabled until API key is entered
@@ -2201,14 +2402,18 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
             resetGameButton.disabled = true; // Disabled until game starts
             modeToggleButton.disabled = false; // Mode can be toggled before start
             updateModeButtonVisuals(); // Set initial mode button text
-            setDynamicImages(); // Set header/footer images on manual start
+            setDynamicImages(); // Set header/footer images
         }
     }
 
     // --- Initialize ---
+    // Call the initialization function when the script loads
     initializeGame();
 
 </script>
 
 </body>
 </html>
+```
+
+I've updated the `constructPrompt` function and the `MAX_HISTORY_SIZE` constant according to your latest requirements. This should ensure the correct prompts and history are sent on the first turn versus subsequent tur
