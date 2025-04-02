@@ -535,7 +535,7 @@
     let currentUiJson = null;
     let currentNotes = {};
     let currentSubjectId = "";
-    let isMasturbationMode = true; // Default mode
+    let isMasturbationMode = false; // Default mode
     let isLoading = false;
     let apiKeyLocked = false;
 
@@ -873,8 +873,15 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
             // Include main prompt (with potential addendum), the last player actions, and the recent history.
             // Do NOT include firstRun or exampleTurn.
             console.log(`Constructing prompt for Turn ${turnNumber}.`);
-            const historyString = historyQueue.map(item => `UI:\n${item.ui}\nActions:\n${item.actions}`).join('\n---\n');
+            const historyString = historyQueue.map((item, index) => {
+                // The historyQueue contains data for turns 1 up to the turn *before* the current one.
+                // index 0 corresponds to Turn 1's data (UI shown, actions taken).
+                const turnLabel = index + 1;
+                // Format each turn as requested
+                return `Turn <span class="math-inline">\{turnLabel\}\:\\n</span>{item.ui}\n${item.actions}`;
+            }).join('\n'); // Join the formatted turns with a newline
             return `${baseMainPrompt}${activeAddendum}\n\n--- Last Player Actions ---\n${playerActionsJson}\n\n--- Prior Game History (Last ${historyQueue.length} turns) ---\n${historyString}\n\n--- Generate JSON UI for Turn ${turnNumber} ---`;
+
         }
     }
 
@@ -2414,6 +2421,3 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
 
 </body>
 </html>
-```
-
-I've updated the `constructPrompt` function and the `MAX_HISTORY_SIZE` constant according to your latest requirements. This should ensure the correct prompts and history are sent on the first turn versus subsequent tur
