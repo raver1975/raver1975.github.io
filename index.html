@@ -1470,7 +1470,7 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
         textElement.innerHTML = textContent
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Bold
             .replace(/\*(.*?)\*/g, '<em>$1</em>')       // Italics
-            .replace(/```([\s\S]*?)```/g, (match, p1) => `<pre>${p1.trim().replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>`) // Code blocks
+            .replace(/```([\s\S]*?)```/g, (match, p1) => `<pre>${p1.trim().replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, '<br>')}</pre>`) // Code blocks
             .replace(/\n/g, '<br>'); // Newlines
         wrapper.appendChild(textElement);
     }
@@ -1789,7 +1789,7 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
         textElement.className = 'geems-text';
         textElement.innerHTML = textContent
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>')
-            .replace(/```([\s\S]*?)```/g, (match, p1) => `<pre>${p1.trim().replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>`)
+            .replace(/```([\s\S]*?)```/g, (match, p1) => `<pre>${p1.trim().replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, '<br>')}</pre>`)
             .replace(/\n/g, '<br>');
         containerDiv.appendChild(textElement);
     }
