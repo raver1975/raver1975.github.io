@@ -535,7 +535,7 @@
     let currentUiJson = null;
     let currentNotes = {};
     let currentSubjectId = "";
-    let isMasturbationMode = false; // Default mode
+    let isMasturbationMode = true; // Default mode
     let isLoading = false;
     let apiKeyLocked = false;
 
@@ -874,7 +874,7 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
             // Include main prompt (with potential addendum), the last player actions, and the recent history.
             // Do NOT include firstRun or exampleTurn.
             const historyString = historyQueue.map(item => `UI:\n${item.ui}\nActions:\n${item.actions}`).join('\n---\n');
-            const s = `${baseMainPrompt}${activeAddendum}\n\n--- Last Player Actions ---\n${playerActionsJson}\n\n--- Prior Game History (Last ${historyQueue.length} turns) ---\n${historyString}\n\n--- Generate JSON UI for Next Game Turn ---`;
+            const s = `${baseMainPrompt}${activeAddendum}\n\n--- Last Player Actions ---\n${playerActionsJson}\n\n--- Prior Game History (Last ${historyQueue.length} turns) ---\n${historyString}\n\n--- Generate Next Game Turn JSON UI ARRAY ---`;
             console.log(s);
             return s;
         }
