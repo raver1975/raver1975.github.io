@@ -1,3 +1,4 @@
+<!--https://ipfs.io/ipfs/QmbYZuKpSdpuM56cihnSszrxtuJj8baUESfPXr6By8C43r-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1443,7 +1444,8 @@
         // Render the prompt text below the label/image
         const promptText = document.createElement('p');
         promptText.className = 'geems-image-prompt'; // Specific class for prompt text styling
-        promptText.textContent = `Prompt: ${imagePrompt}`;
+        const displayedPrompt = imagePrompt.startsWith("Prompt:") ? imagePrompt.substring(7) : imagePrompt;
+        promptText.textContent = `Prompt: ${displayedPrompt}`;
         wrapper.appendChild(promptText);
     }
 
