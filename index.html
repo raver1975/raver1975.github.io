@@ -530,7 +530,7 @@
     let currentUiJson = null;
     let currentNotes = {};
     let currentSubjectId = "";
-    let isMasturbationMode = true; // Default mode
+    let isMasturbationMode = false; // Default mode
     let isLoading = false;
     let apiKeyLocked = false;
 
@@ -2003,7 +2003,7 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
     function updateModeButtonVisuals() {
         if (isMasturbationMode) {
             modeToggleButton.textContent = 'Mode: Explicit';
-            modeToggleButton.classList.remove('standard-mode'); // Remove green class
+            modeToggleButton.classList.remove('standard-mode');
         } else {
             modeToggleButton.textContent = 'Mode: Standard';
             modeToggleButton.classList.add('standard-mode'); // Add green class
@@ -2174,7 +2174,7 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
     modeToggleButton.addEventListener('click', () => {
         if (isLoading) return; // Prevent toggling while loading
         isMasturbationMode = !isMasturbationMode; // Flip the mode flag
-        console.log(`Masturbation Mode Toggled: ${isMasturbationMode}`);
+        console.log(`Masturbation Mode Toggled: ${isMasturbationMode ? 'Explicit' : 'Standard'}`);
         updateModeButtonVisuals(); // Update button appearance
         // Auto-save state when mode changes, as it's a significant state change
         autoSaveGameState();
@@ -2194,7 +2194,7 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
             currentUiJson = null;
             currentNotes = {};
             currentSubjectId = "";
-            isMasturbationMode = false; // Reset to default mode
+            // isMasturbationMode = false; // Reset to default mode - DO NOT RESET HERE
             currentModelIndex = 0; // Reset to first model
 
             // Clear game state from localStorage
@@ -2258,7 +2258,7 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
                 apiKeyInput.value = decodedApiKey;
                 historyQueue = savedState.historyQueue || [];
                 currentUiJson = savedState.currentUiJson || null;
-                isMasturbationMode = savedState.isMasturbationMode === false; // Default to true if undefined/false
+                isMasturbationMode = savedState.isMasturbationMode || false; // Default to false if undefined/false
                 currentModelIndex = savedState.currentModelIndex || 0;
                 apiKeyLocked = true; // Assume key is locked if state is restored
                 autoStarted = true; // Mark as auto-started
@@ -2306,7 +2306,7 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
                 // Reset state variables to ensure a clean manual start
                 historyQueue = [];
                 currentUiJson = null;
-                isMasturbationMode = false;
+                // isMasturbationMode = false; // DO NOT RESET HERE
                 currentModelIndex = 0;
                 apiKeyLocked = false;
                 autoStarted = false; // Ensure manual start proceeds
@@ -2340,7 +2340,7 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
                     apiKeyLocked = false; // Key is present but not locked until first fetch succeeds
                     // Reset other state variables for a fresh start
                     currentModelIndex = 0;
-                    isMasturbationMode = false; // Default mode
+                    // isMasturbationMode = false; // Default mode - DO NOT RESET HERE
                     historyQueue = [];
                     currentUiJson = null;
 
@@ -2377,7 +2377,7 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
             // Ensure state variables are reset for a clean manual start
             historyQueue = [];
             currentUiJson = null;
-            isMasturbationMode = false;
+            // isMasturbationMode = false; // DO NOT RESET HERE
             currentModelIndex = 0;
             apiKeyLocked = false;
             uiContainer.innerHTML = ''; // Clear UI container
