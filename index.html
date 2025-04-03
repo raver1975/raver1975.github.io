@@ -2199,7 +2199,7 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
             currentUiJson = null;
             currentNotes = {};
             currentSubjectId = "";
-            isMasturbationMode = true; // Reset to default mode
+            isMasturbationMode = false; // Reset to default mode
             currentModelIndex = 0; // Reset to first model
 
             // Clear game state from localStorage
@@ -2263,7 +2263,7 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
                 apiKeyInput.value = decodedApiKey;
                 historyQueue = savedState.historyQueue || [];
                 currentUiJson = savedState.currentUiJson || null;
-                isMasturbationMode = savedState.isMasturbationMode === true; // Default to true if undefined/false
+                isMasturbationMode = savedState.isMasturbationMode === false; // Default to true if undefined/false
                 currentModelIndex = savedState.currentModelIndex || 0;
                 apiKeyLocked = true; // Assume key is locked if state is restored
                 autoStarted = true; // Mark as auto-started
@@ -2311,7 +2311,7 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
                 // Reset state variables to ensure a clean manual start
                 historyQueue = [];
                 currentUiJson = null;
-                isMasturbationMode = true;
+                isMasturbationMode = false;
                 currentModelIndex = 0;
                 apiKeyLocked = false;
                 autoStarted = false; // Ensure manual start proceeds
@@ -2345,7 +2345,7 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
                     apiKeyLocked = false; // Key is present but not locked until first fetch succeeds
                     // Reset other state variables for a fresh start
                     currentModelIndex = 0;
-                    isMasturbationMode = true; // Default mode
+                    isMasturbationMode = false; // Default mode
                     historyQueue = [];
                     currentUiJson = null;
 
@@ -2382,7 +2382,7 @@ Example Turn 1 JSON (Illustrative - Mundane Start / MM Active / Notes as Markdow
             // Ensure state variables are reset for a clean manual start
             historyQueue = [];
             currentUiJson = null;
-            isMasturbationMode = true;
+            isMasturbationMode = false;
             currentModelIndex = 0;
             apiKeyLocked = false;
             uiContainer.innerHTML = ''; // Clear UI container
